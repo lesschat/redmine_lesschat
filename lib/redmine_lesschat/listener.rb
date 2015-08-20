@@ -1,17 +1,21 @@
-require 'httpclient'
+require 'rest-client'
 
-class SlackListener < Redmine::Hook::Listener
+class LesschatListener < Redmine::Hook::Listener
 	def controller_issues_new_after_save(context={})
 		issue = context[:issue]
 
-		channel = channel_for_project issue.project
 		url = url_for_project issue.project
 
-		return unless channel and url
+		return unless url
 
-		msg = "[#{escape issue.project}] #{escape issue.author} created <#{object_url issue}|#{escape issue}>#{mentions issue.description}"
+		msg = "[#{escape issue.project}] #{escape issue.author} 创建了Issue"
 
 		attachment = {}
+		attachment[:fallback] = "#{escape issue.author} 在 #{escape issue.project} 创建了新Issue"
+		attachment[:title] = "#{escape issue}"
+		attachment[:title_link] = "#{object_url issue}"
+		attachment[:color] = '#D26900'
+		attachment[:pretext] = msg
 		attachment[:text] = escape issue.description if issue.description
 		attachment[:fields] = [{
 			:title => I18n.t("field_status"),
@@ -21,37 +25,38 @@ class SlackListener < Redmine::Hook::Listener
 			:title => I18n.t("field_priority"),
 			:value => escape(issue.priority.to_s),
 			:short => true
-		}, {
-			:title => I18n.t("field_assigned_to"),
-			:value => escape(issue.assigned_to.to_s),
-			:short => true
 		}]
 
-		attachment[:fields] << {
-			:title => I18n.t("field_watcher"),
-			:value => escape(issue.watcher_users.join(', ')),
-			:short => true
-		} if Setting.plugin_redmine_slack[:display_watchers] == 'yes'
+		# attachment[:fields] << {
+		# 	:title => I18n.t("field_watcher"),
+		# 	:value => escape(issue.watcher_users.join(', ')),
+		# 	:short => true
+		# } if Setting.plugin_redmine_slack[:display_watchers] == 'yes'
 
-		speak msg, channel, attachment, url
+		speak attachment, url
 	end
 
 	def controller_issues_edit_after_save(context={})
 		issue = context[:issue]
 		journal = context[:journal]
 
-		channel = channel_for_project issue.project
 		url = url_for_project issue.project
 
-		return unless channel and url and Setting.plugin_redmine_slack[:post_updates] == '1'
+		return unless url
+		# and Setting.plugin_redmine_slack[:post_updates] == '1'
 
-		msg = "[#{escape issue.project}] #{escape journal.user.to_s} updated <#{object_url issue}|#{escape issue}>#{mentions journal.notes}"
+		msg = "[#{escape issue.project}] #{escape journal.user.to_s} 更新了Issue"
 
 		attachment = {}
+		attachment[:fallback] = "#{escape journal.user.to_s} 更新了 #{escape issue.project} 的Issue"
+		attachment[:color] = "#E45203"
+		attachment[:title] = "#{escape issue}"
+		attachment[:title_link] = "#{object_url issue}"
+		attachment[:pretext] = msg
 		attachment[:text] = escape journal.notes if journal.notes
 		attachment[:fields] = journal.details.map { |d| detail_to_field d }
 
-		speak msg, channel, attachment, url
+		speak attachment, url
 	end
 
 	def model_changeset_scan_commit_for_issue_ids_pre_issue_update(context={})
@@ -59,12 +64,11 @@ class SlackListener < Redmine::Hook::Listener
 		journal = issue.current_journal
 		changeset = context[:changeset]
 
-		channel = channel_for_project issue.project
 		url = url_for_project issue.project
 
-		return unless channel and url and issue.save
+		return unless url and issue.save
 
-		msg = "[#{escape issue.project}] #{escape journal.user.to_s} updated <#{object_url issue}|#{escape issue}>"
+		msg = "[#{escape issue.project}] #{escape journal.user.to_s} 更新了Issue"
 
 		repository = changeset.repository
 
@@ -79,39 +83,29 @@ class SlackListener < Redmine::Hook::Listener
 		)
 
 		attachment = {}
-		attachment[:text] = ll(Setting.default_language, :text_status_changed_by_changeset, "<#{revision_url}|#{escape changeset.comments}>")
+		attachment[:pretext] = msg
+		attachment[:fallback] = "#{escape journal.user.to_s} 更新了 #{escape issue.project} 的Issue"
+		attachment[:color] = "#E45203"
+		attachment[:title] = "#{escape issue}"
+		attachment[:title_link] = "#{object_url issue}"
+		attachment[:text] = ll(Setting.default_language, :text_status_changed_by_changeset, "[#{revision_url}|#{escape changeset.comments}]")
 		attachment[:fields] = journal.details.map { |d| detail_to_field d }
 
-		speak msg, channel, attachment, url
+		speak attachment, url
 	end
 
-	def speak(msg, channel, attachment=nil, url=nil)
-		url = Setting.plugin_redmine_slack[:slack_url] if not url
-		username = Setting.plugin_redmine_slack[:username]
-		icon = Setting.plugin_redmine_slack[:icon]
+	def speak(attachment=nil, url=nil)
+		url = Setting.plugin_redmine_lesschat[:webhook_url] if not url rescue nil
+
+		return unless url and attachment
+
+		return unless url.from(0).to(3) == 'http'
 
 		params = {
-			:text => msg,
-			:link_names => 1,
+			:attachment => attachment
 		}
 
-		params[:username] = username if username
-		params[:channel] = channel if channel
-
-		params[:attachments] = [attachment] if attachment
-
-		if icon and not icon.empty?
-			if icon.start_with? ':'
-				params[:icon_emoji] = icon
-			else
-				params[:icon_url] = icon
-			end
-		end
-
-		client = HTTPClient.new
-		client.ssl_config.cert_store.set_default_paths
-		client.ssl_config.ssl_version = "SSLv23"
-		client.post url, {:payload => params.to_json}
+		RestClient.post url, params.to_json, :content_type => :json, :accept => :json rescue nil
 	end
 
 private
@@ -126,32 +120,32 @@ private
 	def url_for_project(proj)
 		return nil if proj.blank?
 
-		cf = ProjectCustomField.find_by_name("Slack URL")
+		cf = ProjectCustomField.find_by_name("Lesschat Webhook URL")
 
 		return [
 			(proj.custom_value_for(cf).value rescue nil),
 			(url_for_project proj.parent),
-			Setting.plugin_redmine_slack[:slack_url],
+			Setting.plugin_redmine_lesschat[:webhook_url],
 		].find{|v| v.present?}
 	end
 
-	def channel_for_project(proj)
-		return nil if proj.blank?
+	# def channel_for_project(proj)
+	# 	return nil if proj.blank?
 
-		cf = ProjectCustomField.find_by_name("Slack Channel")
+	# 	cf = ProjectCustomField.find_by_name("Slack Channel")
 
-		val = [
-			(proj.custom_value_for(cf).value rescue nil),
-			(channel_for_project proj.parent),
-			Setting.plugin_redmine_slack[:channel],
-		].find{|v| v.present?}
+	# 	val = [
+	# 		(proj.custom_value_for(cf).value rescue nil),
+	# 		(channel_for_project proj.parent),
+	# 		Setting.plugin_redmine_slack[:channel],
+	# 	].find{|v| v.present?}
 
-		if val.to_s.starts_with? '#'
-			val
-		else
-			nil
-		end
-	end
+	# 	if val.to_s.starts_with? '#'
+	# 		val
+	# 	else
+	# 		nil
+	# 	end
+	# end
 
 	def detail_to_field(detail)
 		if detail.property == "cf"
@@ -194,10 +188,10 @@ private
 			value = escape version.to_s
 		when "attachment"
 			attachment = Attachment.find(detail.prop_key) rescue nil
-			value = "<#{object_url attachment}|#{escape attachment.filename}>" if attachment
+			value = "[#{object_url attachment}|#{escape attachment.filename}]" if attachment
 		when "parent"
 			issue = Issue.find(detail.value) rescue nil
-			value = "<#{object_url issue}|#{escape issue}>" if issue
+			value = "[#{object_url issue}|#{escape issue}]" if issue
 		end
 
 		value = "-" if value.empty?
