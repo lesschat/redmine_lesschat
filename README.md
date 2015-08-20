@@ -1,6 +1,8 @@
-# Lesschat plugin for Redmine. <small>Forked from Slack plugin for Redmine.</small>
-
+# Lesschat plugin for Redmine. 
 This plugin posts updates to issues in your Redmine installation to Lesschat. 
+
+Forked from [Slack plugin for Redmine](https://github.com/sciyoshi/redmine-slack).
+
 
 ## Installation
 
