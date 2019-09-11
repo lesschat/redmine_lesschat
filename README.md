@@ -1,4 +1,4 @@
-# Lesschat plugin for Redmine. 
+# Worktile plugin for Redmine. 
 This plugin posts updates to issues in your Redmine installation to Lesschat. 
 
 Forked from [Slack plugin for Redmine](https://github.com/sciyoshi/redmine-slack).
@@ -9,7 +9,7 @@ Forked from [Slack plugin for Redmine](https://github.com/sciyoshi/redmine-slack
 From your Redmine plugins directory, clone this repository as `redmine_lesschat` (note
 the underscore!):
 
-    git clone https://github.com/lesschat/redmine_lesschat.git redmine_lesschat
+    git clone https://github.com/worktile/redmine_worktile.git redmine_worktile
 
 You will also need the `restclient` dependency, which can be installed by running
 
